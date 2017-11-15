@@ -15,7 +15,6 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'tests.djapp.settings')
 django.setup()
 from django import test as django_test
 from django.conf import settings
-from django.db import models as django_models
 from django.test.runner import DiscoverRunner as DjangoTestSuiteRunner
 from django.test import utils as django_test_utils
 from django.db.models import signals
@@ -90,6 +89,29 @@ class MultifieldModelFactory(factory.django.DjangoModelFactory):
         django_get_or_create = ['slug']
 
     text = factory.Faker('text')
+
+
+class MultiFieldModelFactoryGetFirst(factory.django.DjangoModelFactory):
+    class Meta:
+        model = models.MultifieldModel
+        django_get_first_or_create = ['text']
+
+    slug = factory.Sequence(lambda n: "slug%d" % n)
+
+
+class MultiFieldModelFactoryGetFirstTuple(factory.django.DjangoModelFactory):
+    class Meta:
+        model = models.MultifieldModel
+        django_get_first_or_create = ['text', 'slug']
+    slug = factory.Sequence(lambda n: "slug%d" % n)
+    text = factory.Sequence(lambda n: "name%d" % n)
+
+
+class MultiFieldModelFactoryGetFirstBadConfig(factory.django.DjangoModelFactory):
+    class Meta:
+        model = models.MultifieldModel
+        django_get_or_create = ('text',)
+        django_get_first_or_create = ('text',)
 
 
 class AbstractBaseFactory(factory.django.DjangoModelFactory):
@@ -217,6 +239,53 @@ class DjangoGetOrCreateTests(django_test.TestCase):
         self.assertEqual(6, len(objs))
         self.assertEqual(2, len(set(objs)))
         self.assertEqual(2, models.MultifieldModel.objects.count())
+
+
+class DjangoGetFirstOrCreateTests(django_test.TestCase):
+    def test_simple_call(self):
+        obj1 = MultiFieldModelFactoryGetFirst(text='first')
+        obj2 = MultiFieldModelFactoryGetFirst(text='second')
+        obj3 = MultiFieldModelFactoryGetFirst(text='first')
+
+        self.assertEqual(obj1.pk, obj3.pk)
+        self.assertNotEqual(obj1.pk, obj2.pk)
+        self.assertEqual(2, models.MultifieldModel.objects.count())
+
+    def test_missing_arg(self):
+        with self.assertRaises(factory.FactoryError):
+            MultiFieldModelFactoryGetFirst()
+
+    def test_multicall(self):
+        objs = MultiFieldModelFactoryGetFirst.create_batch(8,
+            text=factory.Iterator(['first', 'second', 'first', 'third']),
+        )
+        self.assertEqual(8, len(objs))
+        self.assertEqual(3, len(set(objs)))
+        self.assertEqual(3, models.MultifieldModel.objects.count())
+
+    def test_previously_created(self):
+        for i in range(5):
+            models.MultifieldModel.objects.create(text='sample_text', slug=str(i))
+        obj = MultiFieldModelFactoryGetFirst(text='sample_text')
+        self.assertEqual(models.MultifieldModel.objects.count(), 5)
+        self.assertEqual(obj.slug, models.MultifieldModel.objects.first().slug)
+
+    def test_tuple_factory(self):
+        obj1 = MultiFieldModelFactoryGetFirstTuple(text='first_text', slug='first_slug')
+        obj2 = MultiFieldModelFactoryGetFirstTuple(text='first_text', slug='second_slug')
+        obj3 = MultiFieldModelFactoryGetFirstTuple(text='first_text', slug='second_slug')
+        obj4 = MultiFieldModelFactoryGetFirstTuple(text='second_text', slug='third_slug')
+        obj5 = MultiFieldModelFactoryGetFirstTuple(text='second_text', slug='third_slug')
+        self.assertEqual(models.MultifieldModel.objects.count(), 3)
+        self.assertNotEqual(obj1.pk, obj2.pk)
+        self.assertEqual(obj2.pk, obj3.pk)
+        self.assertNotEqual(obj3.pk, obj4.pk)
+        self.assertEqual(obj4.pk, obj5.pk)
+
+    def test_bad_factory(self):
+        msg = "You can't define both options in one factory: django_get_or_create and django_get_first_or_create"
+        with self.assertRaisesRegexp(AssertionError, msg):
+            MultiFieldModelFactoryGetFirstBadConfig()
 
 
 class DjangoPkForceTestCase(django_test.TestCase):

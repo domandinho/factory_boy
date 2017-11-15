@@ -95,6 +95,48 @@ All factories for a Django :class:`~django.db.models.Model` should use the
             >>> User.objects.all()
             [<User: john>, <User: jack>]
 
+    .. attribute:: django_get_first_or_create
+
+        .. versionadded:: 2.9.3
+
+        Sometimes we want to perform something similar to django_get_or_create on non-unique field.
+
+        It can lead to this exception:
+        :meth:`MultipleObjectsReturned <django.core.exceptions.MultipleObjectsReturned>`
+
+        If default value for factory is not unique in database, than whole factory is broken.
+        We can just select first matching element by using this option.
+        Fields whose name are passed in this list will be used to perform a
+        :meth:`Model.objects.filter(**fields).first() <django.db.models.query.QuerySet.first>`
+        lookup.
+
+        If result is None than creation will be performed by
+        :meth:`Model.objects.create() <django.db.models.query.QuerySet.create>`:
+
+        .. code-block:: python
+
+            class MyModelFactory(factory.django.DjangoModelFactory):
+                class Meta:
+                    model = 'myapp.MyModel'  # Equivalent to ``model = myapp.models.User``
+                    django_get_first_or_create = ('some_field',)
+
+                some_field = 'Sample'
+
+        .. code-block:: pycon
+
+            >>> MyModel.objects.create(some_field='Sample', **other_values), MyModel.objects.create(some_field='Sample', **other_values)
+            [<MyModel: sample>, <MyModel: sample>]
+            >>> User.objects.count()
+            2
+            >>> MyModelFactory()  # Retrieves first instance with some_field value == 'Sample' without raising exceptions
+            <MyModel: sample>
+            >>> User.objects.all()   # No new instances were created.
+            [<MyModel: sample>, <MyModel: sample>]
+
+            >>> MyModelFactory(some_field='Other value')  # Creating new MyModel
+            <MyModel: Other value>
+            >>> User.objects.count()
+            3
 
 
 Extra fields

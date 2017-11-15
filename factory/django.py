@@ -68,6 +68,7 @@ class DjangoOptions(base.FactoryOptions):
     def _build_default_options(self):
         return super(DjangoOptions, self)._build_default_options() + [
             base.OptionDefault('django_get_or_create', (), inherit=True),
+            base.OptionDefault('django_get_first_or_create', (), inherit=True),
             base.OptionDefault('database', DEFAULT_DB_ALIAS, inherit=True),
         ]
 
@@ -136,22 +137,39 @@ class DjangoModelFactory(base.Factory):
         """Create an instance of the model through objects.get_or_create."""
         manager = cls._get_manager(model_class)
 
-        assert 'defaults' not in cls._meta.django_get_or_create, (
-            "'defaults' is a reserved keyword for get_or_create "
-            "(in %s._meta.django_get_or_create=%r)"
-            % (cls, cls._meta.django_get_or_create))
-
-        key_fields = {}
-        for field in cls._meta.django_get_or_create:
-            if field not in kwargs:
-                raise errors.FactoryError(
-                    "django_get_or_create - "
-                    "Unable to find initialization value for '%s' in factory %s" %
-                    (field, cls.__name__))
-            key_fields[field] = kwargs.pop(field)
-        key_fields['defaults'] = kwargs
+        key_fields = cls._get_key_fields('django_get_or_create', kwargs)
 
         instance, _created = manager.get_or_create(*args, **key_fields)
+        return instance
+
+    @classmethod
+    def _get_key_fields(cls, selector_name, kwargs):
+        error_message = selector_name.replace('django_', '')
+        field_names = getattr(cls._meta, selector_name, )
+        assert 'defaults' not in field_names, (
+            "'defaults' is a reserved keyword for %s "
+            "(in %s._meta.%s=%r)"
+            % (error_message, cls, error_message, field_names))
+        key_fields = {}
+        for field in field_names:
+            if field not in kwargs:
+                raise errors.FactoryError(
+                    "%s - "
+                    "Unable to find initialization value for '%s' in factory %s" %
+                    (selector_name, field, cls.__name__))
+            key_fields[field] = kwargs.pop(field)
+        key_fields['defaults'] = kwargs
+        return key_fields
+
+    @classmethod
+    def _get_first_or_create(cls, model_class, *args, **kwargs):
+        """Get first matching element or create new."""
+        manager = cls._get_manager(model_class)
+        key_fields = cls._get_key_fields('django_get_first_or_create', kwargs.copy())
+        key_fields.pop('defaults')
+        instance = manager.filter(*args, **key_fields).first()
+        if instance is None:
+            instance = manager.create(*args, **kwargs)
         return instance
 
     @classmethod
@@ -159,8 +177,12 @@ class DjangoModelFactory(base.Factory):
         """Create an instance of the model, and save it to the database."""
         manager = cls._get_manager(model_class)
 
+        assert not (cls._meta.django_get_or_create and cls._meta.django_get_first_or_create), \
+            "You can't define both options in one factory: django_get_or_create and django_get_first_or_create"
         if cls._meta.django_get_or_create:
             return cls._get_or_create(model_class, *args, **kwargs)
+        elif cls._meta.django_get_first_or_create:
+            return cls._get_first_or_create(model_class, *args, **kwargs)
 
         return manager.create(*args, **kwargs)
 
